@@ -10,22 +10,36 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# In production (Render) these come from environment variables;
+# the defaults below are for local development only.
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-ir02#!e&hlgmgtfdv$imi(2zda_&$xx187errk%^qc%+4f%gfq',
+)
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
+DEBUG = os.environ.get('DEBUG', 'true').lower() == 'true'
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-ir02#!e&hlgmgtfdv$imi(2zda_&$xx187errk%^qc%+4f%gfq'
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    if h.strip()
+]
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Render provides the public hostname of the service automatically.
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+# Render terminates TLS at its proxy.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 
 # Application definition
@@ -48,6 +62,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -76,13 +91,23 @@ TEMPLATES = [
 WSGI_APPLICATION = 'blokus.wsgi.application'
 ASGI_APPLICATION = 'blokus.asgi.application'
 
-# In-memory channel layer is fine for a single-process dev server.
-# Use channels_redis in production.
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+# In-memory channel layer works for a single instance (Render runs one
+# instance per web service unless you scale). Set REDIS_URL to use Redis
+# when scaling beyond one instance.
+REDIS_URL = os.environ.get('REDIS_URL')
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {'hosts': [REDIS_URL]},
+        }
     }
-}
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -93,20 +118,31 @@ REST_FRAMEWORK = {
     ],
 }
 
+# The deployed frontend origin, e.g. https://blokus-frontend.onrender.com
+FRONTEND_ORIGIN = os.environ.get('FRONTEND_ORIGIN', '').rstrip('/')
+
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
 ]
+if FRONTEND_ORIGIN:
+    CORS_ALLOWED_ORIGINS.append(FRONTEND_ORIGIN)
+
+CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
+
+# Origins allowed to open game WebSockets (checked in asgi.py).
+WS_ALLOWED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
 
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+# SQLite locally; Postgres on Render via the DATABASE_URL env var.
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600,
+    )
 }
 
 
@@ -145,3 +181,13 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
