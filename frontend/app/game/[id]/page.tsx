@@ -1,0 +1,845 @@
+"use client";
+
+import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  api,
+  Color,
+  GameState,
+  getToken,
+  PieceShapes,
+  WS_BASE,
+} from "@/lib/api";
+import {
+  BOARD_SIZE,
+  bbox,
+  clampAnchor,
+  isLegalPlacement,
+  orientationAfter,
+  placementCells,
+} from "@/lib/rules";
+
+const COLOR_LABEL: Record<Color, string> = {
+  blue: "Blue",
+  yellow: "Yellow",
+  red: "Red",
+  green: "Green",
+};
+
+function shortName(name: string): string {
+  return name.length > 12 ? name.slice(0, 12) + "…" : name;
+}
+
+// How far (in cells) a touch-dragged piece floats above the finger so it
+// stays visible. Mouse drags need no lift.
+const TOUCH_LIFT_CELLS = 2.6;
+
+export default function GamePage() {
+  const router = useRouter();
+  const { id } = useParams<{ id: string }>();
+
+  const [game, setGame] = useState<GameState | null>(null);
+  const [shapes, setShapes] = useState<PieceShapes | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [orientation, setOrientation] = useState(0);
+  // Staged placement: the piece sits on the board waiting for ✓.
+  const [pending, setPending] = useState<{ x: number; y: number } | null>(null);
+  const [hover, setHover] = useState<[number, number] | null>(null);
+  // Drag of a piece out of the tray.
+  const [drag, setDrag] = useState<{
+    pid: string;
+    px: number;
+    py: number;
+    touch: boolean;
+  } | null>(null);
+  // Drag of the already-staged piece across the board.
+  const [pendDrag, setPendDrag] = useState<{
+    dx: number;
+    dy: number;
+    touch: boolean;
+  } | null>(null);
+  const [error, setError] = useState("");
+  const [connected, setConnected] = useState(false);
+  // Color of the player whose remaining pieces are shown in a modal.
+  const [viewPlayer, setViewPlayer] = useState<Color | null>(null);
+  // Board cell of my own placed piece that was tapped to open the
+  // piece picker; the chosen piece is staged corner-adjacent to it.
+  const [picker, setPicker] = useState<[number, number] | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const boardRef = useRef<HTMLDivElement | null>(null);
+  const suppressClickRef = useRef(false);
+
+  const me = game?.players.find((p) => p.is_you) ?? null;
+  const isMyTurn = !!(game && me && game.current_color === me.color);
+  const isFirstMove = !!(me && me.remaining_pieces.length === 21);
+  const orient = selected && shapes ? shapes[selected][orientation] : null;
+
+  // --- data loading + websocket -----------------------------------------
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+    api<PieceShapes>("/pieces/", { auth: false }).then(setShapes);
+
+    let ws: WebSocket | null = null;
+    let closed = false;
+    let retry: ReturnType<typeof setTimeout>;
+
+    function connect() {
+      ws = new WebSocket(`${WS_BASE}/ws/game/${id}/?token=${token}`);
+      wsRef.current = ws;
+      ws.onopen = () => setConnected(true);
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "state") {
+          setGame(msg.game);
+        } else if (msg.type === "error") {
+          setError(msg.message);
+        }
+      };
+      ws.onclose = () => {
+        setConnected(false);
+        if (!closed) retry = setTimeout(connect, 2000);
+      };
+    }
+    connect();
+
+    return () => {
+      closed = true;
+      clearTimeout(retry);
+      ws?.close();
+    };
+  }, [id, router]);
+
+  // Clear selection/staging once the piece has been placed or the turn moved on.
+  useEffect(() => {
+    if (selected && me && !me.remaining_pieces.includes(selected)) {
+      setSelected(null);
+      setPending(null);
+      setOrientation(0);
+    }
+  }, [selected, me]);
+
+  useEffect(() => {
+    if (!isMyTurn) setPending(null);
+  }, [isMyTurn]);
+
+  // --- staging / confirming -------------------------------------------------
+
+  const stageCentered = useCallback(
+    (cellX: number, cellY: number) => {
+      if (!orient || !isMyTurn) return;
+      const { w, h } = bbox(orient);
+      const [ax, ay] = clampAnchor(
+        cellX - Math.floor((w - 1) / 2),
+        cellY - Math.floor((h - 1) / 2),
+        w,
+        h
+      );
+      setPending({ x: ax, y: ay });
+    },
+    [orient, isMyTurn]
+  );
+
+  const pendingLegal = useMemo(() => {
+    if (!pending || !orient || !game || !me) return false;
+    return isLegalPlacement(
+      game.board,
+      me.color,
+      orient,
+      pending.x,
+      pending.y,
+      isFirstMove,
+      game.start_corners[me.color]
+    );
+  }, [pending, orient, game, me, isFirstMove]);
+
+  const confirmPending = useCallback(() => {
+    if (!pending || !pendingLegal || !selected || !wsRef.current) return;
+    setError("");
+    wsRef.current.send(
+      JSON.stringify({
+        action: "place",
+        piece: selected,
+        orientation,
+        x: pending.x,
+        y: pending.y,
+      })
+    );
+  }, [pending, pendingLegal, selected, orientation]);
+
+  const cancelPending = useCallback(() => {
+    setPending(null);
+    setSelected(null);
+    setOrientation(0);
+  }, []);
+
+  const rotate = useCallback(
+    (op: "cw" | "ccw" | "flip") => {
+      if (!selected || !shapes) return;
+      const next = orientationAfter(shapes, selected, orientation, op);
+      setOrientation(next);
+      // Keep the staged piece visually centered where it was.
+      if (pending && orient) {
+        const oldB = bbox(orient);
+        const newB = bbox(shapes[selected][next]);
+        const cx = pending.x + (oldB.w - 1) / 2;
+        const cy = pending.y + (oldB.h - 1) / 2;
+        const [ax, ay] = clampAnchor(
+          Math.round(cx - (newB.w - 1) / 2),
+          Math.round(cy - (newB.h - 1) / 2),
+          newB.w,
+          newB.h
+        );
+        setPending({ x: ax, y: ay });
+      }
+    },
+    [selected, shapes, orientation, pending, orient]
+  );
+
+  const nudge = useCallback(
+    (dx: number, dy: number) => {
+      if (!pending || !orient) return;
+      const { w, h } = bbox(orient);
+      const [ax, ay] = clampAnchor(pending.x + dx, pending.y + dy, w, h);
+      setPending({ x: ax, y: ay });
+    },
+    [pending, orient]
+  );
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "r" || e.key === "R") rotate("cw");
+      if (e.key === "f" || e.key === "F") rotate("flip");
+      if (e.key === "Escape") {
+        if (picker) setPicker(null);
+        else if (viewPlayer) setViewPlayer(null);
+        else cancelPending();
+      }
+      if (e.key === "Enter") confirmPending();
+      if (e.key.startsWith("Arrow")) {
+        e.preventDefault();
+        if (e.key === "ArrowLeft") nudge(-1, 0);
+        if (e.key === "ArrowRight") nudge(1, 0);
+        if (e.key === "ArrowUp") nudge(0, -1);
+        if (e.key === "ArrowDown") nudge(0, 1);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [rotate, cancelPending, confirmPending, nudge, viewPlayer, picker]);
+
+  // --- shared drag geometry ---------------------------------------------------
+
+  function boardStride(): { rect: DOMRect; stride: number } | null {
+    const rect = boardRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return { rect, stride: (rect.width - 4) / BOARD_SIZE };
+  }
+
+  // Geometry of the tray-drag ghost and the board anchor it would stage at.
+  const dragInfo = useMemo(() => {
+    if (!drag || !shapes) return null;
+    const o = shapes[drag.pid][orientation];
+    const { w, h } = bbox(o);
+    const geo = boardStride();
+    const stride = geo?.stride ?? 27;
+    const lift = drag.touch ? TOUCH_LIFT_CELLS * stride : 0;
+    const left = drag.px - (w * stride) / 2;
+    const top = drag.py - (h * stride) / 2 - lift;
+    let anchor: [number, number] | null = null;
+    if (geo) {
+      const ax = Math.round((left - geo.rect.left - 2) / stride);
+      const ay = Math.round((top - geo.rect.top - 2) / stride);
+      if (ax > -w && ax < BOARD_SIZE && ay > -h && ay < BOARD_SIZE) {
+        anchor = clampAnchor(ax, ay, w, h);
+      }
+    }
+    return { pid: drag.pid, orient: o, w, h, stride, left, top, anchor };
+  }, [drag, shapes, orientation]);
+
+  // Fresh state for window-level pointer listeners (avoids stale closures).
+  const ctxRef = useRef<{
+    dragInfo: typeof dragInfo;
+    pending: typeof pending;
+    pendDrag: typeof pendDrag;
+    orient: number[][] | null;
+    isMyTurn: boolean;
+  }>({ dragInfo: null, pending: null, pendDrag: null, orient: null, isMyTurn: false });
+  ctxRef.current = { dragInfo, pending, pendDrag, orient, isMyTurn };
+
+  function swallowNextClick() {
+    suppressClickRef.current = true;
+    setTimeout(() => (suppressClickRef.current = false), 0);
+  }
+
+  // Tray drag: ghost follows the pointer; releasing over the board stages it.
+  useEffect(() => {
+    if (!drag) return;
+    const onMove = (e: PointerEvent) => {
+      e.preventDefault();
+      setDrag((d) => (d ? { ...d, px: e.clientX, py: e.clientY } : d));
+    };
+    const onUp = () => {
+      const info = ctxRef.current.dragInfo;
+      setDrag(null);
+      swallowNextClick();
+      if (info?.anchor && ctxRef.current.isMyTurn) {
+        setPending({ x: info.anchor[0], y: info.anchor[1] });
+      }
+    };
+    const cancel = () => setDrag(null);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", cancel);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", cancel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!drag]);
+
+  // Staged-piece drag: the pending overlay itself follows the finger/mouse.
+  useEffect(() => {
+    if (!pendDrag) return;
+    const onMove = (e: PointerEvent) => {
+      e.preventDefault();
+      const c = ctxRef.current;
+      if (!c.pendDrag || !c.orient) return;
+      const geo = boardStride();
+      if (!geo) return;
+      const lift = c.pendDrag.touch ? TOUCH_LIFT_CELLS * geo.stride : 0;
+      const cellX = Math.floor((e.clientX - geo.rect.left - 2) / geo.stride);
+      const cellY = Math.floor((e.clientY - lift - geo.rect.top - 2) / geo.stride);
+      const { w, h } = bbox(c.orient);
+      const [ax, ay] = clampAnchor(
+        cellX - c.pendDrag.dx,
+        cellY - c.pendDrag.dy,
+        w,
+        h
+      );
+      setPending({ x: ax, y: ay });
+    };
+    const onUp = () => {
+      setPendDrag(null);
+      swallowNextClick();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!pendDrag]);
+
+  // --- board overlays -----------------------------------------------------
+
+  // Cells of the staged piece.
+  const pendingCells = useMemo(() => {
+    if (!pending || !orient) return null;
+    const set = new Set<string>();
+    for (const [cx, cy] of placementCells(orient, pending.x, pending.y)) {
+      set.add(`${cx},${cy}`);
+    }
+    return set;
+  }, [pending, orient]);
+
+  // Hover/drag preview (only while nothing is staged).
+  const preview = useMemo(() => {
+    if (pending) return null;
+    const anchor = drag ? (dragInfo?.anchor ?? null) : hover;
+    const pid = drag ? drag.pid : selected;
+    if (!game || !me || !pid || !shapes || !anchor || !isMyTurn) return null;
+    const o = shapes[pid][orientation];
+    const cells = placementCells(o, anchor[0], anchor[1]);
+    const ok = isLegalPlacement(
+      game.board,
+      me.color,
+      o,
+      anchor[0],
+      anchor[1],
+      isFirstMove,
+      game.start_corners[me.color]
+    );
+    const set = new Map<string, boolean>();
+    for (const [cx, cy] of cells) {
+      if (cx >= 0 && cx < BOARD_SIZE && cy >= 0 && cy < BOARD_SIZE) {
+        set.set(`${cx},${cy}`, ok);
+      }
+    }
+    return set;
+  }, [game, me, selected, shapes, hover, drag, dragInfo, orientation, isMyTurn, isFirstMove, pending]);
+
+  function handleCellClick(x: number, y: number) {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    if (!isMyTurn || !game || !me) return;
+    // Tapping one of my own placed pieces opens the piece picker.
+    if (game.board[y][x] === me.color) {
+      setPicker([x, y]);
+      return;
+    }
+    if (!selected) return;
+    if (pendingCells?.has(`${x},${y}`)) return; // taps on the piece don't restage
+    stageCentered(x, y);
+  }
+
+  // Picker choice: stage the piece at the nearest legal corner-touching
+  // spot to the tapped cell (falls back to staging beside it in red).
+  function choosePiece(pid: string) {
+    const target = picker;
+    setPicker(null);
+    if (!target || !shapes || !game || !me) return;
+    setSelected(pid);
+
+    // Empty cells diagonally adjacent to my color = possible corner anchors,
+    // nearest to the tapped cell first.
+    const anchors: [number, number][] = [];
+    for (let y = 0; y < BOARD_SIZE; y++) {
+      for (let x = 0; x < BOARD_SIZE; x++) {
+        if (game.board[y][x] !== null) continue;
+        const nearMe = [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dy]) => {
+          const nx = x + dx, ny = y + dy;
+          return (
+            nx >= 0 && nx < BOARD_SIZE &&
+            ny >= 0 && ny < BOARD_SIZE &&
+            game.board[ny][nx] === me.color
+          );
+        });
+        if (nearMe) anchors.push([x, y]);
+      }
+    }
+    anchors.sort(
+      (a, b) =>
+        (a[0] - target[0]) ** 2 + (a[1] - target[1]) ** 2 -
+        ((b[0] - target[0]) ** 2 + (b[1] - target[1]) ** 2)
+    );
+
+    for (const [cx, cy] of anchors) {
+      for (let oi = 0; oi < shapes[pid].length; oi++) {
+        for (const [dx, dy] of shapes[pid][oi]) {
+          const ax = cx - dx, ay = cy - dy;
+          if (
+            isLegalPlacement(
+              game.board, me.color, shapes[pid][oi], ax, ay,
+              isFirstMove, game.start_corners[me.color]
+            )
+          ) {
+            setOrientation(oi);
+            setPending({ x: ax, y: ay });
+            return;
+          }
+        }
+      }
+    }
+
+    // No legal spot for this piece near here: stage it beside the tapped
+    // cell anyway (shown red) so the user can move or rotate it.
+    setOrientation(0);
+    const { w, h } = bbox(shapes[pid][0]);
+    const [ax, ay] = clampAnchor(target[0] + 1, target[1] + 1, w, h);
+    setPending({ x: ax, y: ay });
+  }
+
+  function handleCellPointerDown(
+    e: React.PointerEvent,
+    x: number,
+    y: number
+  ) {
+    if (!pending || !pendingCells?.has(`${x},${y}`)) return;
+    e.preventDefault();
+    setPendDrag({
+      dx: x - pending.x,
+      dy: y - pending.y,
+      touch: e.pointerType === "touch",
+    });
+  }
+
+  // --- render helpers -------------------------------------------------------
+
+  const cornerOwner = useMemo(() => {
+    const m = new Map<string, Color>();
+    if (game) {
+      for (const [color, [x, y]] of Object.entries(game.start_corners)) {
+        m.set(`${x},${y}`, color as Color);
+      }
+    }
+    return m;
+  }, [game]);
+
+  function pieceThumb(
+    pid: string,
+    color: Color,
+    clickable: boolean,
+    onPick?: (pid: string) => void
+  ) {
+    if (!shapes) return null;
+    // The selected piece mirrors its current rotation/flip in the tray.
+    const cells =
+      clickable && selected === pid
+        ? shapes[pid][orientation]
+        : shapes[pid][0];
+    const { w, h } = bbox(cells);
+    const filled = new Set(cells.map(([x, y]) => `${x},${y}`));
+    return (
+      <div
+        key={pid}
+        className={`piece ${selected === pid && clickable ? "selected" : ""}`}
+        style={{ cursor: onPick ? "pointer" : clickable ? "grab" : "default" }}
+        title={pid}
+        onClick={() => {
+          if (onPick) {
+            onPick(pid);
+            return;
+          }
+          if (!clickable) return;
+          setSelected(pid);
+          setOrientation(0);
+          setPending(null);
+        }}
+        onPointerDown={(e) => {
+          if (onPick || !clickable || !isMyTurn) return;
+          e.preventDefault();
+          setSelected(pid);
+          setOrientation(0);
+          setPending(null);
+          setDrag({
+            pid,
+            px: e.clientX,
+            py: e.clientY,
+            touch: e.pointerType === "touch",
+          });
+        }}
+      >
+        <div
+          className="piece-grid"
+          style={{ gridTemplateColumns: `repeat(${w}, var(--sq, 12px))` }}
+        >
+          {Array.from({ length: h }, (_, y) =>
+            Array.from({ length: w }, (_, x) => (
+              <div
+                key={`${x},${y}`}
+                className={`sq ${filled.has(`${x},${y}`) ? `filled ${color}` : "empty"}`}
+              />
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // --- page ------------------------------------------------------------------
+
+  if (!game || !shapes) {
+    return (
+      <div className="container">
+        <p className="muted">Loading game…</p>
+      </div>
+    );
+  }
+
+  const winner =
+    game.status === "finished"
+      ? [...game.players].sort((a, b) => (b.score ?? -99) - (a.score ?? -99))[0]
+      : null;
+
+  const showActionBar = !!me && game.status === "active" && !!selected;
+
+  return (
+    <div className={`container game-container ${showActionBar ? "has-bar" : ""}`}>
+      <div className="topbar">
+        <h1>{game.name}</h1>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          {!connected && <span className="error-text">reconnecting…</span>}
+          <button onClick={() => router.push("/")}>← Lobby</button>
+        </div>
+      </div>
+
+      {game.status === "waiting" && (
+        <div className="banner" style={{ marginBottom: 16 }}>
+          Waiting for players… {game.players.filter((p) => p.username).length}/4
+          joined. Share the game name with friends so they can join from the
+          lobby.
+        </div>
+      )}
+
+      {game.status === "active" && (
+        <div
+          className={`banner ${isMyTurn ? "your-turn" : ""}`}
+          style={{ marginBottom: 16 }}
+        >
+          {isMyTurn ? (
+            <>
+              <strong>Your turn ({COLOR_LABEL[me!.color]}).</strong>{" "}
+              {pending
+                ? "Drag or nudge the piece into position, rotate it, then tap ✓."
+                : selected
+                  ? "Tap or drag onto the board to position the piece."
+                  : "Pick a piece from your tray."}
+            </>
+          ) : (
+            <>
+              Waiting for{" "}
+              <strong>
+                {shortName(
+                  game.players.find((p) => p.color === game.current_color)
+                    ?.username ??
+                    game.current_color ??
+                    ""
+                )}
+              </strong>{" "}
+              ({COLOR_LABEL[game.current_color as Color]}) to move…
+            </>
+          )}
+        </div>
+      )}
+
+      {game.status === "finished" && winner && (
+        <div className="banner your-turn" style={{ marginBottom: 16 }}>
+          🏆 Game over — <strong>{shortName(winner.username ?? "")}</strong> (
+          {COLOR_LABEL[winner.color]}) wins with {winner.score} points!
+        </div>
+      )}
+
+      {error && (
+        <div className="banner error" style={{ marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
+
+      <div className="game-layout">
+        <div
+          className="board"
+          ref={boardRef}
+          onMouseLeave={() => setHover(null)}
+        >
+          {game.board.map((row, y) =>
+            row.map((cell, x) => {
+              const key = `${x},${y}`;
+              const previewState = preview?.get(key);
+              const corner = !cell && cornerOwner.get(key);
+              const isPending = !cell && pendingCells?.has(key);
+              return (
+                <div
+                  key={key}
+                  className={[
+                    "cell",
+                    cell ?? "",
+                    corner ? `corner-${corner}` : "",
+                    previewState === true ? "preview-ok" : "",
+                    previewState === false ? "preview-bad" : "",
+                    isPending
+                      ? `pending ${me?.color ?? ""} ${pendingLegal ? "ok" : "bad"}`
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onMouseEnter={() => setHover([x, y])}
+                  onClick={() => handleCellClick(x, y)}
+                  onPointerDown={(e) => handleCellPointerDown(e, x, y)}
+                />
+              );
+            })
+          )}
+        </div>
+
+        <div className="side">
+          <div className="player-strip">
+            {game.players.map((p) => (
+              <div
+                key={p.color}
+                className={`player-chip ${
+                  game.status === "active" && game.current_color === p.color
+                    ? "current"
+                    : ""
+                } ${p.username ? "clickable" : ""}`}
+                onClick={() => p.username && setViewPlayer(p.color)}
+                title={p.username ?? undefined}
+              >
+                <span className={`dot ${p.color}`} />
+                <span>
+                  {p.username ? (
+                    shortName(p.username)
+                  ) : (
+                    <em className="muted">waiting…</em>
+                  )}
+                  {p.is_you && " (you)"}
+                </span>
+                <span className="muted" style={{ marginLeft: "auto" }}>
+                  {game.status === "finished"
+                    ? `${p.score} pts`
+                    : p.is_blocked
+                      ? "blocked"
+                      : `${p.remaining_pieces.length} left`}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {me && game.status !== "finished" && (
+            <div className="card">
+              <h2 style={{ fontSize: 16, marginBottom: 12 }}>Your pieces</h2>
+              <div className="piece-tray">
+                {me.remaining_pieces.map((pid) =>
+                  pieceThumb(pid, me.color, true)
+                )}
+              </div>
+              <p className="muted key-hints">
+                R rotate · F flip · arrows nudge · Enter place · Esc cancel
+              </p>
+            </div>
+          )}
+
+          {game.status === "finished" && (
+            <div className="card">
+              <h2 style={{ fontSize: 16, marginBottom: 10 }}>Final scores</h2>
+              <div className="scores">
+                {[...game.players]
+                  .sort((a, b) => (b.score ?? -99) - (a.score ?? -99))
+                  .map((p) => (
+                    <div className="score-row" key={p.color}>
+                      <span>
+                        <span
+                          className={`dot ${p.color}`}
+                          style={{
+                            display: "inline-block",
+                            marginRight: 8,
+                          }}
+                        />
+                        {shortName(p.username ?? "")}
+                      </span>
+                      <strong>{p.score} pts</strong>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {showActionBar && (
+        <div className="action-bar">
+          <button onClick={() => rotate("ccw")} title="Rotate left">
+            ⟲
+          </button>
+          <button onClick={() => rotate("cw")} title="Rotate right (R)">
+            ⟳
+          </button>
+          <button onClick={() => rotate("flip")} title="Flip (F)">
+            ⇋
+          </button>
+          <button onClick={cancelPending} title="Cancel (Esc)">
+            ✕
+          </button>
+          <button
+            className="primary confirm"
+            onClick={confirmPending}
+            disabled={!pending || !pendingLegal}
+            title="Place piece (Enter)"
+          >
+            ✓ Place
+          </button>
+        </div>
+      )}
+
+      {viewPlayer &&
+        (() => {
+          const p = game.players.find((pl) => pl.color === viewPlayer);
+          if (!p) return null;
+          return (
+            <div className="modal-backdrop" onClick={() => setViewPlayer(null)}>
+              <div className="modal card" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-head">
+                  <h2>
+                    <span className={`dot ${p.color}`} />
+                    {p.username}
+                    {p.is_you && " (you)"}
+                  </h2>
+                  <button onClick={() => setViewPlayer(null)}>✕</button>
+                </div>
+                <p className="muted" style={{ marginBottom: 12 }}>
+                  {COLOR_LABEL[p.color]} ·{" "}
+                  {game.status === "finished"
+                    ? `${p.score} pts`
+                    : p.is_blocked
+                      ? "blocked"
+                      : `${p.remaining_pieces.length} piece${
+                          p.remaining_pieces.length === 1 ? "" : "s"
+                        } left`}
+                </p>
+                {p.remaining_pieces.length > 0 ? (
+                  <div className="piece-tray">
+                    {p.remaining_pieces.map((pid) =>
+                      pieceThumb(pid, p.color, false)
+                    )}
+                  </div>
+                ) : (
+                  <p className="muted">All pieces placed! 🎉</p>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+      {picker && me && game.status === "active" && (
+        <div className="modal-backdrop" onClick={() => setPicker(null)}>
+          <div className="modal card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>
+                <span className={`dot ${me.color}`} />
+                Choose a piece
+              </h2>
+              <button onClick={() => setPicker(null)}>✕</button>
+            </div>
+            <p className="muted" style={{ marginBottom: 12 }}>
+              It will be staged next to the piece you tapped — adjust it,
+              then press ✓.
+            </p>
+            <div className="piece-tray">
+              {me.remaining_pieces.map((pid) =>
+                pieceThumb(pid, me.color, false, choosePiece)
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dragInfo && me && (
+        <div
+          className="drag-ghost"
+          style={{
+            left: dragInfo.left,
+            top: dragInfo.top,
+            gridTemplateColumns: `repeat(${dragInfo.w}, ${dragInfo.stride - 1}px)`,
+            gridAutoRows: `${dragInfo.stride - 1}px`,
+          }}
+        >
+          {(() => {
+            const filled = new Set(
+              dragInfo.orient.map(([x, y]) => `${x},${y}`)
+            );
+            return Array.from({ length: dragInfo.h }, (_, y) =>
+              Array.from({ length: dragInfo.w }, (_, x) => (
+                <div
+                  key={`${x},${y}`}
+                  className={`sq ${
+                    filled.has(`${x},${y}`) ? `filled ${me.color}` : "empty"
+                  }`}
+                />
+              ))
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
