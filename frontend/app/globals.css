@@ -135,6 +135,147 @@ input:focus {
   font-size: 22px;
 }
 
+.lobby-main {
+  position: relative;
+  z-index: 1;
+}
+
+/* floating decorative pieces behind the lobby */
+.bg-pieces {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bg-piece {
+  position: absolute;
+  filter: blur(0.5px);
+  animation: float-piece ease-in-out infinite alternate;
+}
+
+@keyframes float-piece {
+  from {
+    transform: rotate(var(--rot, 0deg)) translateY(0);
+  }
+  to {
+    transform: rotate(var(--rot, 0deg)) translateY(-18px);
+  }
+}
+
+/* header */
+.lobby-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 6px 0 26px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.brand-mark {
+  display: grid;
+  grid-template-columns: repeat(2, 15px);
+  gap: 3px;
+  transform: rotate(-6deg);
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
+}
+
+.brand-mark i {
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+}
+
+.brand-mark .blue { background: var(--c-blue); }
+.brand-mark .yellow { background: var(--c-yellow); }
+.brand-mark .red { background: var(--c-red); }
+.brand-mark .green { background: var(--c-green); }
+
+.brand h1 {
+  font-size: 26px;
+  line-height: 1.1;
+  letter-spacing: 0.5px;
+}
+
+.brand .tagline {
+  font-size: 12.5px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 14px 5px 5px;
+  font-size: 14px;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--c-blue), var(--c-green));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* two-column layout: games left, leaderboard right */
+.lobby-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 22px;
+  align-items: start;
+}
+
+.lobby-col {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+@media (max-width: 900px) {
+  .lobby-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lobby-card h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 17px;
+  margin-bottom: 14px;
+}
+
+.lobby-card h2::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--hdr, var(--accent));
+  flex-shrink: 0;
+}
+
 .game-list {
   display: flex;
   flex-direction: column;
@@ -145,10 +286,90 @@ input:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px 16px;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.game-row:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.game-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  font-size: 13.5px;
+}
+
+/* four seat indicators, filled in join order */
+.seats {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.seats i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.seats i.blue { background: var(--c-blue); border-color: transparent; }
+.seats i.yellow { background: var(--c-yellow); border-color: transparent; }
+.seats i.red { background: var(--c-red); border-color: transparent; }
+.seats i.green { background: var(--c-green); border-color: transparent; }
+
+/* leaderboard */
+.lb {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lb-row {
+  display: grid;
+  grid-template-columns: 34px 1fr 44px 52px 44px;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.lb-row:not(.lb-head):nth-child(even) {
+  background: var(--panel-2);
+}
+
+.lb-row.me {
+  border: 1px solid var(--accent);
+}
+
+.lb-head {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.lb-rank {
+  font-weight: 700;
+}
+
+.lb-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-stat {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- game page ---- */
@@ -213,12 +434,30 @@ input:focus {
 .cell.pending.green { background: var(--c-green); }
 
 .cell.pending.ok {
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.9);
+  /* green = legal, ready to place (white hairline keeps it visible on
+     the green player's own pieces) */
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.9),
+    inset 0 0 0 3px #4ade80;
 }
 
 .cell.pending.bad {
   box-shadow: inset 0 0 0 2px #7f1d1d;
   filter: saturate(0.45) brightness(0.75);
+}
+
+/* blink a freshly added piece so the user spots it on a busy board */
+@keyframes pending-flash {
+  from { background: rgba(255, 255, 255, 0.85); }
+  to { background: rgba(255, 255, 255, 0); }
+}
+
+.cell.pending.flash::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: pending-flash 0.45s ease-in-out 4 alternate;
 }
 
 .side {
@@ -332,20 +571,61 @@ input:focus {
 
 .action-bar button {
   flex: 1;
-  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 26px;
+  font-weight: 700;
   padding: 10px 0;
   line-height: 1;
 }
 
+.action-bar button svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* rotate = blue, flip = yellow, cancel = red, place = green */
+.action-bar button.rot {
+  color: var(--accent);
+}
+
+.action-bar button.flip {
+  color: var(--c-yellow);
+}
+
+.action-bar button.cancel {
+  color: var(--c-red);
+  border-color: rgba(239, 68, 68, 0.55);
+}
+
+.action-bar button.cancel:hover:not(:disabled) {
+  border-color: var(--c-red);
+  background: rgba(239, 68, 68, 0.12);
+}
+
 .action-bar button.confirm {
   flex: 2;
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 700;
+  background: #16a34a;
+  border-color: #16a34a;
+}
+
+.action-bar button.confirm:hover:not(:disabled) {
+  border-color: #22c55e;
+  background: #17b352;
 }
 
 .key-hints {
   margin-top: 12px;
   font-size: 13px;
+}
+
+/* mobile-only "Add piece" button; desktop uses the tray instead */
+.add-piece-bar {
+  display: none;
 }
 
 /* modal showing another player's remaining pieces */
@@ -388,6 +668,83 @@ input:focus {
   border-radius: 3px;
   flex-shrink: 0;
 }
+
+/* rules modal (lobby) */
+.rules-modal {
+  max-width: 560px;
+}
+
+.rules-content h3 {
+  font-size: 16px;
+  margin: 16px 0 8px;
+  color: var(--accent);
+}
+
+.rules-content h3:first-child {
+  margin-top: 6px;
+}
+
+.rules-content p,
+.rules-content li {
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.rules-content ul {
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* example mini-boards inside the rules modal */
+.example-boards {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin: 14px 0 4px;
+}
+
+.ex-item {
+  max-width: 200px;
+}
+
+.ex-board {
+  display: grid;
+  grid-auto-rows: 18px;
+  gap: 1px;
+  background: var(--border);
+  border: 2px solid var(--border);
+  border-radius: 5px;
+  width: max-content;
+}
+
+.ex-cell {
+  background: var(--panel-2);
+}
+
+.ex-cell.blue { background: var(--c-blue); }
+.ex-cell.yellow { background: var(--c-yellow); }
+.ex-cell.red { background: var(--c-red); }
+.ex-cell.green { background: var(--c-green); }
+
+.ex-cell.mark-ok {
+  box-shadow: inset 0 0 0 2px #4ade80;
+}
+
+.ex-cell.mark-bad {
+  box-shadow: inset 0 0 0 2px #fca5a5;
+}
+
+.ex-cap {
+  margin-top: 8px;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+
+.ex-cap.ex-ok { color: #4ade80 !important; }
+.ex-cap.ex-bad { color: #f87171 !important; }
 
 /* piece following the pointer during drag & drop */
 .drag-ghost {
@@ -493,6 +850,30 @@ input:focus {
     display: none; /* keyboard hints are meaningless on touch */
   }
 
+  /* pieces are added via the Add piece button on mobile */
+  .tray-card {
+    display: none;
+  }
+
+  .add-piece-bar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+  }
+
+  .add-piece-bar button {
+    flex: 1;
+    font-size: 18px;
+    font-weight: 700;
+    padding: 13px 0;
+  }
+
   /* thumb-reach action bar pinned to the bottom of the screen */
   .action-bar {
     position: fixed;
@@ -508,12 +889,12 @@ input:focus {
   }
 
   .action-bar button {
-    font-size: 24px;
+    font-size: 30px;
     padding: 13px 0;
   }
 
   .action-bar button.confirm {
-    font-size: 18px;
+    font-size: 20px;
   }
 
   .banner {

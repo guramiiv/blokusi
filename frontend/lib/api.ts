@@ -37,6 +37,10 @@ export interface GameSummary {
 // piece id -> orientations -> cells [x, y]
 export type PieceShapes = Record<string, number[][][]>;
 
+export function shortName(name: string): string {
+  return name.length > 12 ? name.slice(0, 12) + "…" : name;
+}
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("blokus_token");

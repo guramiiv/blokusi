@@ -9,7 +9,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import state
-from .models import Game
+from .models import Game, GamePlayer
 from .state import MoveError
 
 
@@ -107,3 +107,32 @@ def game_detail(request, game_id):
 @permission_classes([AllowAny])
 def pieces(request):
     return Response(state.piece_shapes())
+
+
+@api_view(["GET"])
+def leaderboard(request):
+    """Top players across finished games: wins, games played, total points."""
+    players = GamePlayer.objects.filter(
+        game__status=Game.STATUS_FINISHED
+    ).select_related("user")
+
+    best = {}  # game_id -> winning score
+    for p in players:
+        if p.score is not None:
+            best[p.game_id] = max(best.get(p.game_id, p.score), p.score)
+
+    stats = {}
+    for p in players:
+        s = stats.setdefault(
+            p.user_id,
+            {"username": p.user.username, "games": 0, "wins": 0, "points": 0},
+        )
+        s["games"] += 1
+        s["points"] += p.score or 0
+        if p.score is not None and p.score == best.get(p.game_id):
+            s["wins"] += 1
+
+    top = sorted(
+        stats.values(), key=lambda s: (-s["wins"], -s["points"], s["username"])
+    )[:10]
+    return Response(top)

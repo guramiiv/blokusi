@@ -8,6 +8,7 @@ import {
   GameState,
   getToken,
   PieceShapes,
+  shortName,
   WS_BASE,
 } from "@/lib/api";
 import {
@@ -25,10 +26,6 @@ const COLOR_LABEL: Record<Color, string> = {
   red: "Red",
   green: "Green",
 };
-
-function shortName(name: string): string {
-  return name.length > 12 ? name.slice(0, 12) + "…" : name;
-}
 
 // How far (in cells) a touch-dragged piece floats above the finger so it
 // stays visible. Mouse drags need no lift.
@@ -64,7 +61,11 @@ export default function GamePage() {
   const [viewPlayer, setViewPlayer] = useState<Color | null>(null);
   // Board cell of my own placed piece that was tapped to open the
   // piece picker; the chosen piece is staged corner-adjacent to it.
+  // The mobile "Add piece" button opens it targeting the board center.
   const [picker, setPicker] = useState<[number, number] | null>(null);
+  // Briefly blink the freshly staged piece so it is easy to spot.
+  const [flashPending, setFlashPending] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const suppressClickRef = useRef(false);
@@ -175,6 +176,7 @@ export default function GamePage() {
     setPending(null);
     setSelected(null);
     setOrientation(0);
+    setError("");
   }, []);
 
   const rotate = useCallback(
@@ -393,29 +395,50 @@ export default function GamePage() {
     stageCentered(x, y);
   }
 
+  function triggerFlash() {
+    setFlashPending(true);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlashPending(false), 1800);
+  }
+
+  useEffect(
+    () => () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    },
+    []
+  );
+
   // Picker choice: stage the piece at the nearest legal corner-touching
-  // spot to the tapped cell (falls back to staging beside it in red).
+  // spot to the target cell (falls back to staging beside it in red),
+  // and blink it so the user sees where it landed.
   function choosePiece(pid: string) {
     const target = picker;
     setPicker(null);
     if (!target || !shapes || !game || !me) return;
     setSelected(pid);
+    setError("");
+    triggerFlash();
 
     // Empty cells diagonally adjacent to my color = possible corner anchors,
-    // nearest to the tapped cell first.
+    // nearest to the tapped cell first. On the first move the only anchor
+    // is the starting corner.
     const anchors: [number, number][] = [];
-    for (let y = 0; y < BOARD_SIZE; y++) {
-      for (let x = 0; x < BOARD_SIZE; x++) {
-        if (game.board[y][x] !== null) continue;
-        const nearMe = [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dy]) => {
-          const nx = x + dx, ny = y + dy;
-          return (
-            nx >= 0 && nx < BOARD_SIZE &&
-            ny >= 0 && ny < BOARD_SIZE &&
-            game.board[ny][nx] === me.color
-          );
-        });
-        if (nearMe) anchors.push([x, y]);
+    if (isFirstMove) {
+      anchors.push(game.start_corners[me.color]);
+    } else {
+      for (let y = 0; y < BOARD_SIZE; y++) {
+        for (let x = 0; x < BOARD_SIZE; x++) {
+          if (game.board[y][x] !== null) continue;
+          const nearMe = [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dy]) => {
+            const nx = x + dx, ny = y + dy;
+            return (
+              nx >= 0 && nx < BOARD_SIZE &&
+              ny >= 0 && ny < BOARD_SIZE &&
+              game.board[ny][nx] === me.color
+            );
+          });
+          if (nearMe) anchors.push([x, y]);
+        }
       }
     }
     anchors.sort(
@@ -442,12 +465,36 @@ export default function GamePage() {
       }
     }
 
-    // No legal spot for this piece near here: stage it beside the tapped
-    // cell anyway (shown red) so the user can move or rotate it.
+    // No legal spot for this piece: stage it (shown red) at the position
+    // with the most empty cells nearest the target, so it is always
+    // visible and draggable even on a crowded board.
     setOrientation(0);
-    const { w, h } = bbox(shapes[pid][0]);
-    const [ax, ay] = clampAnchor(target[0] + 1, target[1] + 1, w, h);
-    setPending({ x: ax, y: ay });
+    const cells0 = shapes[pid][0];
+    const { w, h } = bbox(cells0);
+    let best: { x: number; y: number; empty: number; dist: number } | null =
+      null;
+    for (let ay = 0; ay <= BOARD_SIZE - h; ay++) {
+      for (let ax = 0; ax <= BOARD_SIZE - w; ax++) {
+        let empty = 0;
+        for (const [dx, dy] of cells0) {
+          if (game.board[ay + dy][ax + dx] === null) empty++;
+        }
+        const dist =
+          (ax + (w - 1) / 2 - target[0]) ** 2 +
+          (ay + (h - 1) / 2 - target[1]) ** 2;
+        if (
+          !best ||
+          empty > best.empty ||
+          (empty === best.empty && dist < best.dist)
+        ) {
+          best = { x: ax, y: ay, empty, dist };
+        }
+      }
+    }
+    setPending({ x: best!.x, y: best!.y });
+    setError(
+      "No legal spot for this piece right now — move or rotate it, or press ✕ and pick another piece."
+    );
   }
 
   function handleCellPointerDown(
@@ -553,9 +600,11 @@ export default function GamePage() {
       : null;
 
   const showActionBar = !!me && game.status === "active" && !!selected;
+  // On mobile one of the two bottom bars is always present during a game.
+  const hasBottomBar = !!me && game.status === "active";
 
   return (
-    <div className={`container game-container ${showActionBar ? "has-bar" : ""}`}>
+    <div className={`container game-container ${hasBottomBar ? "has-bar" : ""}`}>
       <div className="topbar">
         <h1>{game.name}</h1>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -638,7 +687,9 @@ export default function GamePage() {
                     previewState === true ? "preview-ok" : "",
                     previewState === false ? "preview-bad" : "",
                     isPending
-                      ? `pending ${me?.color ?? ""} ${pendingLegal ? "ok" : "bad"}`
+                      ? `pending ${me?.color ?? ""} ${pendingLegal ? "ok" : "bad"} ${
+                          flashPending ? "flash" : ""
+                        }`
                       : "",
                   ]
                     .filter(Boolean)
@@ -686,7 +737,7 @@ export default function GamePage() {
           </div>
 
           {me && game.status !== "finished" && (
-            <div className="card">
+            <div className="card tray-card">
               <h2 style={{ fontSize: 16, marginBottom: 12 }}>Your pieces</h2>
               <div className="piece-tray">
                 {me.remaining_pieces.map((pid) =>
@@ -726,19 +777,33 @@ export default function GamePage() {
         </div>
       </div>
 
+      {hasBottomBar && !showActionBar && (
+        <div className="add-piece-bar">
+          <button
+            className="primary"
+            disabled={!isMyTurn}
+            onClick={() =>
+              setPicker([Math.floor(BOARD_SIZE / 2), Math.floor(BOARD_SIZE / 2)])
+            }
+          >
+            ➕ Add piece
+          </button>
+        </div>
+      )}
+
       {showActionBar && (
         <div className="action-bar">
-          <button onClick={() => rotate("ccw")} title="Rotate left">
-            ⟲
+          <button className="rot" onClick={() => rotate("ccw")} title="Rotate left">
+            <IconRotateCcw />
           </button>
-          <button onClick={() => rotate("cw")} title="Rotate right (R)">
-            ⟳
+          <button className="rot" onClick={() => rotate("cw")} title="Rotate right (R)">
+            <IconRotateCw />
           </button>
-          <button onClick={() => rotate("flip")} title="Flip (F)">
-            ⇋
+          <button className="flip" onClick={() => rotate("flip")} title="Flip (F)">
+            <IconFlip />
           </button>
-          <button onClick={cancelPending} title="Cancel (Esc)">
-            ✕
+          <button className="cancel" onClick={cancelPending} title="Cancel (Esc)">
+            <IconX />
           </button>
           <button
             className="primary confirm"
@@ -746,7 +811,7 @@ export default function GamePage() {
             disabled={!pending || !pendingLegal}
             title="Place piece (Enter)"
           >
-            ✓ Place
+            <IconCheck /> Place
           </button>
         </div>
       )}
@@ -801,8 +866,8 @@ export default function GamePage() {
               <button onClick={() => setPicker(null)}>✕</button>
             </div>
             <p className="muted" style={{ marginBottom: 12 }}>
-              It will be staged next to the piece you tapped — adjust it,
-              then press ✓.
+              The piece will appear on the board (green border = ready to
+              place). Drag it to adjust, then press ✓.
             </p>
             <div className="piece-tray">
               {me.remaining_pieces.map((pid) =>
@@ -841,5 +906,66 @@ export default function GamePage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ---- action bar icons (stroke follows the button's text color) ----
+
+const iconProps = {
+  width: "1em",
+  height: "1em",
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2.5,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+} as const;
+
+function IconRotateCcw() {
+  return (
+    <svg {...iconProps}>
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
+  );
+}
+
+function IconRotateCw() {
+  return (
+    <svg {...iconProps}>
+      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+    </svg>
+  );
+}
+
+function IconFlip() {
+  return (
+    <svg {...iconProps}>
+      <path d="M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3" />
+      <path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" />
+      <path d="M12 20v2" />
+      <path d="M12 14v2" />
+      <path d="M12 8v2" />
+      <path d="M12 2v2" />
+    </svg>
+  );
+}
+
+function IconX() {
+  return (
+    <svg {...iconProps}>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
+}
+
+function IconCheck() {
+  return (
+    <svg {...iconProps} width="1.25em" height="1.25em">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
   );
 }
