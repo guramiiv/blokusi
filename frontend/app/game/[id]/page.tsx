@@ -623,9 +623,11 @@ export default function GamePage() {
 
       {game.status === "waiting" && (
         <div className="banner" style={{ marginBottom: 16 }}>
-          Waiting for players… {game.players.filter((p) => p.username).length}/4
-          joined. Share the game name with friends so they can join from the
-          lobby.
+          Waiting for players… {game.players.filter((p) => p.username).length}/
+          {game.human_seats ?? 4} joined. Share the game name with friends so
+          they can join from the lobby.
+          {(game.human_seats ?? 4) < 4 &&
+            " Bots will take the remaining seats."}
         </div>
       )}
 

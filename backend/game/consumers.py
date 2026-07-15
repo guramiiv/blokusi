@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 from channels.db import database_sync_to_async
@@ -6,6 +7,9 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from . import state
 from .models import Game
 from .state import MoveError
+
+# Pause between bot moves so humans can watch them land one by one.
+BOT_MOVE_DELAY = 0.8
 
 
 class GameConsumer(AsyncWebsocketConsumer):
@@ -33,6 +37,8 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.group, self.channel_name)
         await self.accept()
         await self._send_state(game)
+        # Recover a game stuck on a bot's turn (server restart, reconnect).
+        self._ensure_bot_runner()
 
     async def disconnect(self, code):
         await self.channel_layer.group_discard(self.group, self.channel_name)
@@ -57,6 +63,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             await self.channel_layer.group_send(
                 self.group, {"type": "game_state_changed"}
             )
+            self._ensure_bot_runner()
         else:
             await self._send_error("Unknown action.")
 
@@ -64,6 +71,30 @@ class GameConsumer(AsyncWebsocketConsumer):
         game = await self._get_game()
         if game is not None:
             await self._send_state(game)
+
+    # -- bot turns ---------------------------------------------------------
+
+    def _ensure_bot_runner(self):
+        """Play any pending bot turns in a background task, so this
+        consumer keeps handling messages (and receiving broadcasts)."""
+        task = getattr(self, "_bot_task", None)
+        if task and not task.done():
+            return
+        self._bot_task = asyncio.create_task(self._run_bot_turns())
+
+    async def _run_bot_turns(self):
+        while True:
+            await asyncio.sleep(BOT_MOVE_DELAY)
+            # No-op (returns None) unless the current player is a bot;
+            # the row lock in play_bot_move makes concurrent runners safe.
+            game = await database_sync_to_async(state.play_bot_move)(self.game_id)
+            if game is None:
+                return
+            await self.channel_layer.group_send(
+                self.group, {"type": "game_state_changed"}
+            )
+            if game.status != Game.STATUS_ACTIVE:
+                return
 
     # -- helpers ---------------------------------------------------------
 

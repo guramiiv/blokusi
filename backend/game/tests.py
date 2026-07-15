@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from django.test import TestCase
 
-from . import logic, state
+from . import bot, logic, state
 from .models import Game
 from .pieces import ALL_PIECE_IDS, ORIENTATIONS, PIECE_SIZES
 from .state import MoveError
@@ -149,6 +149,9 @@ class GameFlowTests(TestCase):
         self.assertEqual(game.status, Game.STATUS_FINISHED)
         for p in game.players.all():
             self.assertIsNotNone(p.score)
+        # A finished game keeps board + scores but drops its move history.
+        self.assertEqual(game.moves.count(), 0)
+        self.assertTrue(any(cell for row in game.board for cell in row))
 
     def _find_any_move(self, game, player):
         import random
@@ -168,3 +171,143 @@ class GameFlowTests(TestCase):
                         if ok:
                             return pid, oi, ax - dx, ay - dy
         return None
+
+
+class LobbyListTests(TestCase):
+    def test_finished_games_listed_with_winner(self):
+        from rest_framework.test import APIClient
+
+        user = User.objects.create_user("viewer", password="pass123456")
+        game = Game.objects.create(name="old game", created_by=user, human_seats=1)
+        state.join_game(game.id, user)
+        game.refresh_from_db()
+        game.status = Game.STATUS_FINISHED
+        game.save(update_fields=["status"])
+        for p in game.players.all():
+            p.score = 5 if p.color == "red" else -5  # the red bot wins
+            p.save(update_fields=["score"])
+
+        client = APIClient()
+        client.force_authenticate(user)
+        data = client.get("/api/games/").json()
+        self.assertEqual([g["id"] for g in data["finished"]], [game.id])
+        self.assertEqual(data["finished"][0]["winner"], "🤖 Red")
+        # finished games stay out of the active lists
+        self.assertEqual(data["mine"], [])
+        self.assertEqual(data["open"], [])
+
+
+class LeaderboardTests(TestCase):
+    def _finished_bot_game(self, user, human_score, bot_score):
+        game = Game.objects.create(name="vs bots", created_by=user, human_seats=1)
+        state.join_game(game.id, user)
+        game.refresh_from_db()
+        game.status = Game.STATUS_FINISHED
+        game.save(update_fields=["status"])
+        for p in game.players.all():
+            p.score = human_score if p.user_id else bot_score
+            p.save(update_fields=["score"])
+        return game
+
+    def _get(self, user):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user)
+        return client.get("/api/leaderboard/").json()
+
+    def test_winning_a_bot_game_counts_and_bots_stay_hidden(self):
+        user = User.objects.create_user("solo", password="pass123456")
+        self._finished_bot_game(user, human_score=20, bot_score=-10)
+        rows = self._get(user)
+        self.assertEqual(
+            rows, [{"username": "solo", "games": 1, "wins": 1, "points": 20}]
+        )
+
+    def test_no_win_when_a_bot_outscores_the_human(self):
+        user = User.objects.create_user("solo", password="pass123456")
+        self._finished_bot_game(user, human_score=-5, bot_score=5)
+        rows = self._get(user)
+        self.assertEqual(
+            rows, [{"username": "solo", "games": 1, "wins": 0, "points": -5}]
+        )
+
+
+class BotTests(TestCase):
+    def setUp(self):
+        self.human = User.objects.create_user("human", password="pass123456")
+        self.game = Game.objects.create(
+            name="bot game", created_by=self.human, human_seats=1
+        )
+        state.join_game(self.game.id, self.human)
+        self.game.refresh_from_db()
+
+    def test_bot_game_starts_immediately_with_human_as_blue(self):
+        self.assertEqual(self.game.status, Game.STATUS_ACTIVE)
+        self.assertEqual(self.game.players.get(user=self.human).color, "blue")
+        self.assertEqual(self.game.players.filter(user__isnull=True).count(), 3)
+
+    def test_two_human_game_fills_with_bots_when_second_joins(self):
+        friend = User.objects.create_user("friend", password="pass123456")
+        game = Game.objects.create(
+            name="duo", created_by=self.human, human_seats=2
+        )
+        state.join_game(game.id, self.human)
+        game.refresh_from_db()
+        self.assertEqual(game.status, Game.STATUS_WAITING)
+        self.assertEqual(game.players.count(), 1)
+
+        state.join_game(game.id, friend)
+        game.refresh_from_db()
+        self.assertEqual(game.status, Game.STATUS_ACTIVE)
+        self.assertEqual(game.players.filter(user__isnull=False).count(), 2)
+        self.assertEqual(game.players.filter(user__isnull=True).count(), 2)
+        # humans took the first two colors, bots the rest
+        self.assertEqual(game.players.get(color="blue").user, self.human)
+        self.assertEqual(game.players.get(color="yellow").user, friend)
+
+    def test_bots_are_serialized_with_names(self):
+        data = state.serialize_game(self.game, for_user=self.human)
+        by_color = {p["color"]: p for p in data["players"]}
+        self.assertEqual(by_color["yellow"]["username"], "🤖 Yellow")
+        self.assertTrue(by_color["blue"]["is_you"])
+        self.assertFalse(by_color["red"]["is_you"])
+
+    def test_bot_does_not_move_on_humans_turn(self):
+        self.assertIsNone(state.play_bot_move(self.game.id))
+
+    def test_bots_play_until_humans_turn(self):
+        game = state.play_move(self.game.id, self.human, "V5", 0, 0, 0)
+        self.assertEqual(game.current_color, "yellow")
+        for _ in range(3):
+            game = state.play_bot_move(self.game.id)
+            self.assertIsNotNone(game)
+        # All three bots moved (first move covers their corner); human again.
+        self.assertEqual(game.current_color, "blue")
+        self.assertIsNone(state.play_bot_move(self.game.id))
+        self.assertEqual(game.board[0][19], "yellow")
+        self.assertEqual(game.board[19][19], "red")
+        self.assertEqual(game.board[19][0], "green")
+
+    def test_full_bot_game_reaches_finish(self):
+        import random
+
+        random.seed(7)
+        game = self.game
+        safety = 0
+        while game.status == Game.STATUS_ACTIVE and safety < 200:
+            safety += 1
+            player = game.players.get(color=game.current_color)
+            if player.is_bot:
+                game = state.play_bot_move(game.id)
+            else:
+                is_first = len(player.remaining_pieces) == len(ALL_PIECE_IDS)
+                move = bot.choose_move(
+                    game.board, player.color, player.remaining_pieces, is_first
+                )
+                self.assertIsNotNone(move)
+                game = state.play_move(game.id, self.human, *move)
+        self.assertEqual(game.status, Game.STATUS_FINISHED)
+        for p in game.players.all():
+            self.assertIsNotNone(p.score)
+        self.assertEqual(game.moves.count(), 0)

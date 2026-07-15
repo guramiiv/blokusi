@@ -78,7 +78,8 @@ button.danger:hover:not(:disabled) {
   filter: brightness(1.1);
 }
 
-input {
+input,
+select {
   font: inherit;
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -88,7 +89,13 @@ input {
   width: 100%;
 }
 
-input:focus {
+select {
+  width: auto;
+  cursor: pointer;
+}
+
+input:focus,
+select:focus {
   outline: none;
   border-color: var(--accent);
 }

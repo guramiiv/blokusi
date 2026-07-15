@@ -45,7 +45,17 @@ def login(request):
 def games(request):
     if request.method == "POST":
         name = (request.data.get("name") or "").strip() or f"{request.user.username}'s game"
-        game = Game.objects.create(name=name[:80], created_by=request.user)
+        try:
+            humans = int(request.data.get("humans", 4))
+        except (TypeError, ValueError):
+            humans = 4
+        game = Game.objects.create(
+            name=name[:80],
+            created_by=request.user,
+            human_seats=min(4, max(1, humans)),
+        )
+        # The creator takes the first seat; with humans=1 the game starts
+        # against three bots immediately.
         state.join_game(game.id, request.user)
         game = Game.objects.annotate(seat_count=Count("players")).get(pk=game.id)
         return Response(_summary(game), status=201)
@@ -61,22 +71,35 @@ def games(request):
         .exclude(status=Game.STATUS_FINISHED)
         .select_related("created_by")[:50]
     )
+    finished_games = (
+        Game.objects.annotate(seat_count=Count("players"))
+        .filter(players__user=request.user, status=Game.STATUS_FINISHED)
+        .select_related("created_by")
+        .prefetch_related("players__user")[:20]
+    )
     return Response(
         {
             "open": [_summary(g) for g in open_games],
             "mine": [_summary(g) for g in my_games],
+            "finished": [_summary(g, with_winner=True) for g in finished_games],
         }
     )
 
 
-def _summary(game):
-    return {
+def _summary(game, with_winner=False):
+    data = {
         "id": game.id,
         "name": game.name,
         "status": game.status,
         "created_by": game.created_by.username,
         "player_count": game.seat_count,
+        "human_seats": game.human_seats,
     }
+    if with_winner:
+        players = [p for p in game.players.all() if p.score is not None]
+        winner = max(players, key=lambda p: p.score, default=None)
+        data["winner"] = state._display_name(winner) if winner else None
+    return data
 
 
 @api_view(["POST"])
@@ -116,6 +139,8 @@ def leaderboard(request):
         game__status=Game.STATUS_FINISHED
     ).select_related("user")
 
+    # Winning score per game, bots included: beating the bots is required
+    # for a win in a vs-bots game.
     best = {}  # game_id -> winning score
     for p in players:
         if p.score is not None:
@@ -123,6 +148,8 @@ def leaderboard(request):
 
     stats = {}
     for p in players:
+        if p.user_id is None:
+            continue  # bot seats never get a leaderboard row
         s = stats.setdefault(
             p.user_id,
             {"username": p.user.username, "games": 0, "wins": 0, "points": 0},

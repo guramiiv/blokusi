@@ -25,6 +25,9 @@ class Game(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="created_games"
     )
     board = models.JSONField(default=empty_board)
+    # How many human players the game waits for before starting;
+    # bots fill the remaining seats (4 = classic all-human game).
+    human_seats = models.PositiveSmallIntegerField(default=4)
     # Index into COLORS of the color whose turn it is.
     current_turn = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -43,8 +46,13 @@ class Game(models.Model):
 
 class GamePlayer(models.Model):
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="players")
+    # Null user = a computer-controlled seat (bot).
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="game_seats"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="game_seats",
+        null=True,
+        blank=True,
     )
     color = models.CharField(max_length=6)
     remaining_pieces = models.JSONField(default=all_pieces)
@@ -58,8 +66,13 @@ class GamePlayer(models.Model):
             models.UniqueConstraint(fields=["game", "user"], name="unique_user_per_game"),
         ]
 
+    @property
+    def is_bot(self):
+        return self.user_id is None
+
     def __str__(self):
-        return f"{self.user.username} as {self.color} in {self.game_id}"
+        who = self.user.username if self.user_id else "bot"
+        return f"{who} as {self.color} in {self.game_id}"
 
 
 class Move(models.Model):

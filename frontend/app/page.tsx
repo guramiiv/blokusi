@@ -84,10 +84,10 @@ function BgPieces() {
   );
 }
 
-function SeatDots({ count }: { count: number }) {
+function SeatDots({ count, total = 4 }: { count: number; total?: number }) {
   return (
     <span className="seats">
-      {SEAT_COLORS.map((c, i) => (
+      {SEAT_COLORS.slice(0, total).map((c, i) => (
         <i key={c} className={i < count ? c : ""} />
       ))}
     </span>
@@ -98,8 +98,10 @@ export default function LobbyPage() {
   const router = useRouter();
   const [openGames, setOpenGames] = useState<GameSummary[]>([]);
   const [myGames, setMyGames] = useState<GameSummary[]>([]);
+  const [finishedGames, setFinishedGames] = useState<GameSummary[]>([]);
   const [leaders, setLeaders] = useState<LeaderboardEntry[]>([]);
   const [name, setName] = useState("");
+  const [humans, setHumans] = useState(4);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [showRules, setShowRules] = useState(false);
@@ -114,11 +116,16 @@ export default function LobbyPage() {
   const refresh = useCallback(async () => {
     try {
       const [games, lb] = await Promise.all([
-        api<{ open: GameSummary[]; mine: GameSummary[] }>("/games/"),
+        api<{
+          open: GameSummary[];
+          mine: GameSummary[];
+          finished: GameSummary[];
+        }>("/games/"),
         api<LeaderboardEntry[]>("/leaderboard/"),
       ]);
       setOpenGames(games.open);
       setMyGames(games.mine);
+      setFinishedGames(games.finished);
       setLeaders(lb);
       setLoaded(true);
     } catch (err) {
@@ -142,7 +149,7 @@ export default function LobbyPage() {
     try {
       const game = await api<GameSummary>("/games/", {
         method: "POST",
-        body: { name },
+        body: { name, humans },
       });
       router.push(`/game/${game.id}`);
     } catch (err) {
@@ -209,18 +216,33 @@ export default function LobbyPage() {
             style={{ "--hdr": "var(--c-blue)" } as React.CSSProperties}
           >
             <h2>Create a game</h2>
-            <form onSubmit={createGame} style={{ display: "flex", gap: 10 }}>
+            <form
+              onSubmit={createGame}
+              style={{ display: "flex", gap: 10, flexWrap: "wrap" }}
+            >
               <input
                 placeholder="Game name (optional)"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                style={{ flex: "1 1 160px" }}
               />
+              <select
+                value={humans}
+                onChange={(e) => setHumans(Number(e.target.value))}
+                title="Number of live players — bots fill the rest"
+              >
+                <option value={1}>1 player · 3 bots</option>
+                <option value={2}>2 players · 2 bots</option>
+                <option value={3}>3 players · 1 bot</option>
+                <option value={4}>4 players</option>
+              </select>
               <button className="primary" style={{ whiteSpace: "nowrap" }}>
                 Create
               </button>
             </form>
             <p className="muted" style={{ marginTop: 10, fontSize: 14 }}>
-              A game starts automatically when 4 players have joined.
+              The game starts once all live players have joined — bots take
+              any remaining seats. Solo games start right away.
             </p>
           </div>
 
@@ -238,7 +260,11 @@ export default function LobbyPage() {
                       <span className="muted game-meta">
                         {g.status === "waiting" ? (
                           <>
-                            waiting <SeatDots count={g.player_count} />
+                            waiting{" "}
+                            <SeatDots
+                              count={g.player_count}
+                              total={g.human_seats ?? 4}
+                            />
                           </>
                         ) : (
                           "in progress"
@@ -269,7 +295,10 @@ export default function LobbyPage() {
                     <strong>{g.name}</strong>
                     <span className="muted game-meta" title={g.created_by}>
                       by {shortName(g.created_by)}{" "}
-                      <SeatDots count={g.player_count} />
+                      <SeatDots
+                        count={g.player_count}
+                        total={g.human_seats ?? 4}
+                      />
                     </span>
                   </div>
                   <button className="primary" onClick={() => joinGame(g.id)}>
@@ -318,6 +347,33 @@ export default function LobbyPage() {
               </div>
             )}
           </div>
+
+          {finishedGames.length > 0 && (
+            <div
+              className="card lobby-card"
+              style={{ "--hdr": "var(--c-green)" } as React.CSSProperties}
+            >
+              <h2>Finished games</h2>
+              <div className="game-list">
+                {finishedGames.map((g) => (
+                  <div className="game-row" key={g.id}>
+                    <div>
+                      <strong>{g.name}</strong>
+                      <span
+                        className="muted game-meta"
+                        title={g.winner ?? undefined}
+                      >
+                        {g.winner ? <>🏆 {shortName(g.winner)}</> : "finished"}
+                      </span>
+                    </div>
+                    <button onClick={() => router.push(`/game/${g.id}`)}>
+                      View
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

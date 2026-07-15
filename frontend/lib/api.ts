@@ -21,6 +21,7 @@ export interface GameState {
   name: string;
   status: "waiting" | "active" | "finished";
   board: (Color | null)[][];
+  human_seats: number;
   current_color: Color | null;
   players: PlayerState[];
   start_corners: Record<Color, [number, number]>;
@@ -32,6 +33,8 @@ export interface GameSummary {
   status: string;
   created_by: string;
   player_count: number;
+  human_seats: number;
+  winner?: string | null; // only on finished games
 }
 
 // piece id -> orientations -> cells [x, y]
