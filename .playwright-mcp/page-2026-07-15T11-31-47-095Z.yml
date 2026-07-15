@@ -1,0 +1,43 @@
+- generic [active] [ref=e1]:
+  - alert [ref=e10]
+  - generic [ref=e64]:
+    - generic [ref=e65]:
+      - heading "hint_tester's game" [level=1] [ref=e66]
+      - generic [ref=e67]:
+        - button "📖" [ref=e68] [cursor=pointer]
+        - button "← Lobby" [ref=e69] [cursor=pointer]
+    - generic [ref=e70]:
+      - strong [ref=e690]: Your turn (Blue).
+      - text: Pick a piece from your tray, or tap one of your glowing pieces on the board. ✨ The blinking squares show where your pieces can still be placed.
+    - generic [ref=e474]:
+      - generic [ref=e475]:
+        - generic "hint_tester" [ref=e476] [cursor=pointer]:
+          - generic [ref=e478]: hint_tester (you)
+          - generic [ref=e479]: 20 left
+        - generic "🤖 Yellow" [ref=e480] [cursor=pointer]: 20 left
+        - generic "🤖 Red" [ref=e484] [cursor=pointer]: 20 left
+        - generic "🤖 Green" [ref=e488] [cursor=pointer]: 20 left
+      - generic [ref=e492]:
+        - heading "Your pieces" [level=2] [ref=e493]
+        - generic [ref=e494]:
+          - generic "I2" [ref=e498]
+          - generic "I3" [ref=e502]
+          - generic "V3" [ref=e507]
+          - generic "I4" [ref=e513]
+          - generic "O4" [ref=e519]
+          - generic "T4" [ref=e525]
+          - generic "L4" [ref=e533]
+          - generic "S4" [ref=e541]
+          - generic "F" [ref=e549]
+          - generic "I5" [ref=e560]
+          - generic "L5" [ref=e567]
+          - generic "N" [ref=e577]
+          - generic "P" [ref=e587]
+          - generic "T5" [ref=e595]
+          - generic "U" [ref=e606]
+          - generic "V5" [ref=e614]
+          - generic "W" [ref=e625]
+          - generic "X" [ref=e636]
+          - generic "Y" [ref=e647]
+          - generic "Z5" [ref=e657]
+        - paragraph [ref=e668]: R rotate · F flip · arrows nudge · Enter place · Esc cancel

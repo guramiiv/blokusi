@@ -1,0 +1,9 @@
+- generic [ref=e3]:
+  - heading "Blokus — Register" [level=1] [ref=e4]
+  - textbox "Username (min 3 chars)" [active] [ref=e5]
+  - textbox "Password (min 6 chars)" [ref=e6]
+  - button "Create account" [ref=e7] [cursor=pointer]
+  - generic [ref=e8]:
+    - text: Have an account?
+    - link "Sign in" [ref=e9] [cursor=pointer]:
+      - /url: /login

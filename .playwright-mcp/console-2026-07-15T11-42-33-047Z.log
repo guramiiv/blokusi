@@ -1,0 +1,4 @@
+[     107ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ http://localhost:3000/register:0
+[     161ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[    2069ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2477
+[   39357ms] [WARNING] WebSocket connection to 'ws://localhost:8000/ws/game/12/?token=b1966bb19e738ca525c638a2d2e680cc63b4d5fd' failed: WebSocket is closed before the connection is established. @ http://localhost:3000/_next/static/chunks/_17dxgbw._.js:796

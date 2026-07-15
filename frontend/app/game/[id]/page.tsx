@@ -14,6 +14,7 @@ import {
 import {
   BOARD_SIZE,
   bbox,
+  candidateAnchors,
   clampAnchor,
   isLegalPlacement,
   orientationAfter,
@@ -42,14 +43,6 @@ export default function GamePage() {
   const [orientation, setOrientation] = useState(0);
   // Staged placement: the piece sits on the board waiting for ✓.
   const [pending, setPending] = useState<{ x: number; y: number } | null>(null);
-  const [hover, setHover] = useState<[number, number] | null>(null);
-  // Drag of a piece out of the tray.
-  const [drag, setDrag] = useState<{
-    pid: string;
-    px: number;
-    py: number;
-    touch: boolean;
-  } | null>(null);
   // Drag of the already-staged piece across the board.
   const [pendDrag, setPendDrag] = useState<{
     dx: number;
@@ -245,68 +238,19 @@ export default function GamePage() {
     return { rect, stride: (rect.width - 4) / BOARD_SIZE };
   }
 
-  // Geometry of the tray-drag ghost and the board anchor it would stage at.
-  const dragInfo = useMemo(() => {
-    if (!drag || !shapes) return null;
-    const o = shapes[drag.pid][orientation];
-    const { w, h } = bbox(o);
-    const geo = boardStride();
-    const stride = geo?.stride ?? 27;
-    const lift = drag.touch ? TOUCH_LIFT_CELLS * stride : 0;
-    const left = drag.px - (w * stride) / 2;
-    const top = drag.py - (h * stride) / 2 - lift;
-    let anchor: [number, number] | null = null;
-    if (geo) {
-      const ax = Math.round((left - geo.rect.left - 2) / stride);
-      const ay = Math.round((top - geo.rect.top - 2) / stride);
-      if (ax > -w && ax < BOARD_SIZE && ay > -h && ay < BOARD_SIZE) {
-        anchor = clampAnchor(ax, ay, w, h);
-      }
-    }
-    return { pid: drag.pid, orient: o, w, h, stride, left, top, anchor };
-  }, [drag, shapes, orientation]);
-
   // Fresh state for window-level pointer listeners (avoids stale closures).
   const ctxRef = useRef<{
-    dragInfo: typeof dragInfo;
     pending: typeof pending;
     pendDrag: typeof pendDrag;
     orient: number[][] | null;
     isMyTurn: boolean;
-  }>({ dragInfo: null, pending: null, pendDrag: null, orient: null, isMyTurn: false });
-  ctxRef.current = { dragInfo, pending, pendDrag, orient, isMyTurn };
+  }>({ pending: null, pendDrag: null, orient: null, isMyTurn: false });
+  ctxRef.current = { pending, pendDrag, orient, isMyTurn };
 
   function swallowNextClick() {
     suppressClickRef.current = true;
     setTimeout(() => (suppressClickRef.current = false), 0);
   }
-
-  // Tray drag: ghost follows the pointer; releasing over the board stages it.
-  useEffect(() => {
-    if (!drag) return;
-    const onMove = (e: PointerEvent) => {
-      e.preventDefault();
-      setDrag((d) => (d ? { ...d, px: e.clientX, py: e.clientY } : d));
-    };
-    const onUp = () => {
-      const info = ctxRef.current.dragInfo;
-      setDrag(null);
-      swallowNextClick();
-      if (info?.anchor && ctxRef.current.isMyTurn) {
-        setPending({ x: info.anchor[0], y: info.anchor[1] });
-      }
-    };
-    const cancel = () => setDrag(null);
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", cancel);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", cancel);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!drag]);
 
   // Staged-piece drag: the pending overlay itself follows the finger/mouse.
   useEffect(() => {
@@ -356,32 +300,6 @@ export default function GamePage() {
     return set;
   }, [pending, orient]);
 
-  // Hover/drag preview (only while nothing is staged).
-  const preview = useMemo(() => {
-    if (pending) return null;
-    const anchor = drag ? (dragInfo?.anchor ?? null) : hover;
-    const pid = drag ? drag.pid : selected;
-    if (!game || !me || !pid || !shapes || !anchor || !isMyTurn) return null;
-    const o = shapes[pid][orientation];
-    const cells = placementCells(o, anchor[0], anchor[1]);
-    const ok = isLegalPlacement(
-      game.board,
-      me.color,
-      o,
-      anchor[0],
-      anchor[1],
-      isFirstMove,
-      game.start_corners[me.color]
-    );
-    const set = new Map<string, boolean>();
-    for (const [cx, cy] of cells) {
-      if (cx >= 0 && cx < BOARD_SIZE && cy >= 0 && cy < BOARD_SIZE) {
-        set.set(`${cx},${cy}`, ok);
-      }
-    }
-    return set;
-  }, [game, me, selected, shapes, hover, drag, dragInfo, orientation, isMyTurn, isFirstMove, pending]);
-
   function handleCellClick(x: number, y: number) {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
@@ -411,39 +329,19 @@ export default function GamePage() {
     []
   );
 
-  // Picker choice: stage the piece at the nearest legal corner-touching
-  // spot to the target cell (falls back to staging beside it in red),
-  // and blink it so the user sees where it landed.
-  function choosePiece(pid: string) {
-    const target = picker;
-    setPicker(null);
-    if (!target || !shapes || !game || !me) return;
+  // Stage the piece at the nearest legal corner-touching spot to the
+  // target cell (falls back to staging beside it in red), and blink it
+  // so the user sees where it landed. It is then adjusted on the board.
+  function stagePiece(pid: string, target: [number, number]) {
+    if (!shapes || !game || !me) return;
     setSelected(pid);
     setError("");
     triggerFlash();
 
-    // Empty cells diagonally adjacent to my color = possible corner anchors,
-    // nearest to the tapped cell first. On the first move the only anchor
-    // is the starting corner.
-    const anchors: [number, number][] = [];
-    if (isFirstMove) {
-      anchors.push(game.start_corners[me.color]);
-    } else {
-      for (let y = 0; y < BOARD_SIZE; y++) {
-        for (let x = 0; x < BOARD_SIZE; x++) {
-          if (game.board[y][x] !== null) continue;
-          const nearMe = [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dy]) => {
-            const nx = x + dx, ny = y + dy;
-            return (
-              nx >= 0 && nx < BOARD_SIZE &&
-              ny >= 0 && ny < BOARD_SIZE &&
-              game.board[ny][nx] === me.color
-            );
-          });
-          if (nearMe) anchors.push([x, y]);
-        }
-      }
-    }
+    // Possible corner anchors, nearest to the tapped cell first.
+    const anchors = candidateAnchors(
+      game.board, me.color, isFirstMove, game.start_corners[me.color]
+    );
     anchors.sort(
       (a, b) =>
         (a[0] - target[0]) ** 2 + (a[1] - target[1]) ** 2 -
@@ -500,6 +398,13 @@ export default function GamePage() {
     );
   }
 
+  // Picker choice: stage the chosen piece near the tapped cell.
+  function choosePiece(pid: string) {
+    const target = picker;
+    setPicker(null);
+    if (target) stagePiece(pid, target);
+  }
+
   function handleCellPointerDown(
     e: React.PointerEvent,
     x: number,
@@ -544,30 +449,20 @@ export default function GamePage() {
       <div
         key={pid}
         className={`piece ${selected === pid && clickable ? "selected" : ""}`}
-        style={{ cursor: onPick ? "pointer" : clickable ? "grab" : "default" }}
+        style={{ cursor: onPick || clickable ? "pointer" : "default" }}
         title={pid}
         onClick={() => {
           if (onPick) {
             onPick(pid);
             return;
           }
-          if (!clickable) return;
-          setSelected(pid);
-          setOrientation(0);
-          setPending(null);
-        }}
-        onPointerDown={(e) => {
-          if (onPick || !clickable || !isMyTurn) return;
-          e.preventDefault();
-          setSelected(pid);
-          setOrientation(0);
-          setPending(null);
-          setDrag({
-            pid,
-            px: e.clientX,
-            py: e.clientY,
-            touch: e.pointerType === "touch",
-          });
+          // Clicking a tray piece stages it on the board right away;
+          // from there it is dragged, nudged or rotated into place.
+          if (!clickable || !isMyTurn) return;
+          stagePiece(pid, [
+            Math.floor(BOARD_SIZE / 2),
+            Math.floor(BOARD_SIZE / 2),
+          ]);
         }}
       >
         <div
@@ -641,9 +536,7 @@ export default function GamePage() {
               <strong>Your turn ({COLOR_LABEL[me!.color]}).</strong>{" "}
               {pending
                 ? "Drag or nudge the piece into position, rotate it, then tap ✓."
-                : selected
-                  ? "Tap or drag onto the board to position the piece."
-                  : "Pick a piece from your tray, or tap one of your glowing pieces on the board."}
+                : "Pick a piece from your tray, or tap one of your glowing pieces on the board."}
             </>
           ) : (
             <>
@@ -676,15 +569,10 @@ export default function GamePage() {
       )}
 
       <div className="game-layout">
-        <div
-          className="board"
-          ref={boardRef}
-          onMouseLeave={() => setHover(null)}
-        >
+        <div className="board" ref={boardRef}>
           {game.board.map((row, y) =>
             row.map((cell, x) => {
               const key = `${x},${y}`;
-              const previewState = preview?.get(key);
               const corner = !cell && cornerOwner.get(key);
               // Painted even over occupied cells so the staged piece never
               // hides behind placed pieces (e.g. right after a rotation).
@@ -706,8 +594,6 @@ export default function GamePage() {
                     cell ?? "",
                     corner ? `corner-${corner}` : "",
                     clickHint ? "hint" : "",
-                    previewState === true ? "preview-ok" : "",
-                    previewState === false ? "preview-bad" : "",
                     isPending
                       ? `pending ${me?.color ?? ""} ${pendingLegal ? "ok" : "bad"} ${
                           flashPending ? "flash" : ""
@@ -716,7 +602,6 @@ export default function GamePage() {
                   ]
                     .filter(Boolean)
                     .join(" ")}
-                  onMouseEnter={() => setHover([x, y])}
                   onClick={() => handleCellClick(x, y)}
                   onPointerDown={(e) => handleCellPointerDown(e, x, y)}
                 />
@@ -908,33 +793,6 @@ export default function GamePage() {
         </div>
       )}
 
-      {dragInfo && me && (
-        <div
-          className="drag-ghost"
-          style={{
-            left: dragInfo.left,
-            top: dragInfo.top,
-            gridTemplateColumns: `repeat(${dragInfo.w}, ${dragInfo.stride - 1}px)`,
-            gridAutoRows: `${dragInfo.stride - 1}px`,
-          }}
-        >
-          {(() => {
-            const filled = new Set(
-              dragInfo.orient.map(([x, y]) => `${x},${y}`)
-            );
-            return Array.from({ length: dragInfo.h }, (_, y) =>
-              Array.from({ length: dragInfo.w }, (_, x) => (
-                <div
-                  key={`${x},${y}`}
-                  className={`sq ${
-                    filled.has(`${x},${y}`) ? `filled ${me.color}` : "empty"
-                  }`}
-                />
-              ))
-            );
-          })()}
-        </div>
-      )}
     </div>
   );
 }

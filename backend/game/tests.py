@@ -289,6 +289,24 @@ class BotTests(TestCase):
         self.assertEqual(game.board[19][19], "red")
         self.assertEqual(game.board[19][0], "green")
 
+    def test_human_turn_is_skipped_when_they_have_no_legal_move(self):
+        game = state.play_move(self.game.id, self.human, "V5", 0, 0, 0)
+        # Block the human: occupy every empty cell diagonally adjacent to
+        # their pieces, so no corner-touching placement can ever exist.
+        for x, y in logic._candidate_anchors(game.board, "blue", False):
+            game.board[y][x] = "red"
+        game.save(update_fields=["board"])
+
+        # The three bots play; when the turn would come back to the
+        # human, they are marked blocked and skipped.
+        for _ in range(3):
+            game = state.play_bot_move(game.id)
+            self.assertIsNotNone(game)
+
+        self.assertEqual(game.status, Game.STATUS_ACTIVE)
+        self.assertTrue(game.players.get(color="blue").is_blocked)
+        self.assertEqual(game.current_color, "yellow")  # a bot, not the human
+
     def test_full_bot_game_reaches_finish(self):
         import random
 

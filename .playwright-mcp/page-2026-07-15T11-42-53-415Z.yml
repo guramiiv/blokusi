@@ -1,0 +1,48 @@
+- generic [active] [ref=f3e1]:
+  - alert [ref=f3e10]
+  - generic [ref=f3e11]:
+    - banner [ref=f3e12]:
+      - generic [ref=f3e19]:
+        - heading "Blokus" [level=1] [ref=f3e20]
+        - text: online · 4 players · 20×20
+      - generic [ref=f3e21]:
+        - button "📖 წესები" [ref=f3e22] [cursor=pointer]
+        - generic "drag_tester" [ref=f3e23]:
+          - generic [ref=f3e24]: D
+          - text: drag_tester
+        - button "Sign out" [ref=f3e25] [cursor=pointer]
+    - generic [ref=f3e26]:
+      - generic [ref=f3e27]:
+        - generic [ref=f3e28]:
+          - heading "Create a game" [level=2] [ref=f3e29]
+          - generic [ref=f3e30]:
+            - textbox "Game name (optional)" [ref=f3e31]
+            - combobox "Number of live players — bots fill the rest" [ref=f3e32] [cursor=pointer]:
+              - option "1 player · 3 bots"
+              - option "2 players · 2 bots"
+              - option "3 players · 1 bot"
+              - option "4 players" [selected]
+            - button "Create" [ref=f3e33] [cursor=pointer]
+          - paragraph [ref=f3e34]: The game starts once all live players have joined — bots take any remaining seats. Solo games start right away.
+        - generic [ref=f3e35]:
+          - heading "Open games" [level=2] [ref=f3e36]
+          - generic [ref=f3e38]:
+            - generic [ref=f3e39]:
+              - strong [ref=f3e40]: gukenz's game
+              - generic "gukenz" [ref=f3e41]: by gukenz
+            - button "Join" [ref=f3e47] [cursor=pointer]
+      - generic [ref=f3e49]:
+        - heading "🏆 Leaderboard" [level=2] [ref=f3e50]
+        - generic [ref=f3e51]:
+          - generic [ref=f3e52]:
+            - generic [ref=f3e53]: "#"
+            - generic [ref=f3e54]: Player
+            - generic [ref=f3e55]: Wins
+            - generic [ref=f3e56]: Games
+            - generic [ref=f3e57]: Pts
+          - generic [ref=f3e58]:
+            - generic [ref=f3e59]: 🥇
+            - generic "gukenz" [ref=f3e60]
+            - generic [ref=f3e61]: "3"
+            - generic [ref=f3e62]: "3"
+            - generic [ref=f3e63]: "25"

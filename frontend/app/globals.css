@@ -426,21 +426,6 @@ select:focus {
 .cell.corner-red { box-shadow: inset 0 0 0 3px var(--c-red-dim); }
 .cell.corner-green { box-shadow: inset 0 0 0 3px var(--c-green-dim); }
 
-.cell.preview-ok::after,
-.cell.preview-bad::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-}
-
-.cell.preview-ok::after {
-  background: rgba(255, 255, 255, 0.55);
-}
-
-.cell.preview-bad::after {
-  background: rgba(239, 68, 68, 0.6);
-}
-
 /* my placed pieces are tappable while choosing a move — pulse softly */
 @keyframes cell-hint {
   0%,
@@ -780,27 +765,6 @@ select:focus {
 
 .ex-cap.ex-ok { color: #4ade80 !important; }
 .ex-cap.ex-bad { color: #f87171 !important; }
-
-/* piece following the pointer during drag & drop */
-.drag-ghost {
-  position: fixed;
-  display: grid;
-  gap: 1px;
-  pointer-events: none;
-  opacity: 0.75;
-  z-index: 50;
-  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45));
-}
-
-.drag-ghost .sq {
-  border-radius: 2px;
-}
-
-.drag-ghost .sq.filled.blue { background: var(--c-blue); }
-.drag-ghost .sq.filled.yellow { background: var(--c-yellow); }
-.drag-ghost .sq.filled.red { background: var(--c-red); }
-.drag-ghost .sq.filled.green { background: var(--c-green); }
-.drag-ghost .sq.empty { background: transparent; }
 
 .banner {
   padding: 10px 14px;

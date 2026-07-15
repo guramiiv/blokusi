@@ -1,0 +1,48 @@
+- generic [active] [ref=e1]:
+  - alert [ref=e10]
+  - generic [ref=e11]:
+    - banner [ref=e12]:
+      - generic [ref=e19]:
+        - heading "Blokus" [level=1] [ref=e20]
+        - text: online · 4 players · 20×20
+      - generic [ref=e21]:
+        - button "📖 წესები" [ref=e22] [cursor=pointer]
+        - generic "hint_tester" [ref=e23]:
+          - generic [ref=e24]: H
+          - text: hint_tester
+        - button "Sign out" [ref=e25] [cursor=pointer]
+    - generic [ref=e26]:
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - heading "Create a game" [level=2] [ref=e29]
+          - generic [ref=e30]:
+            - textbox "Game name (optional)" [ref=e31]
+            - combobox "Number of live players — bots fill the rest" [ref=e32] [cursor=pointer]:
+              - option "1 player · 3 bots"
+              - option "2 players · 2 bots"
+              - option "3 players · 1 bot"
+              - option "4 players" [selected]
+            - button "Create" [ref=e33] [cursor=pointer]
+          - paragraph [ref=e34]: The game starts once all live players have joined — bots take any remaining seats. Solo games start right away.
+        - generic [ref=e35]:
+          - heading "Open games" [level=2] [ref=e36]
+          - generic [ref=e38]:
+            - generic [ref=e39]:
+              - strong [ref=e40]: gukenz's game
+              - generic "gukenz" [ref=e41]: by gukenz
+            - button "Join" [ref=e47] [cursor=pointer]
+      - generic [ref=e49]:
+        - heading "🏆 Leaderboard" [level=2] [ref=e50]
+        - generic [ref=e51]:
+          - generic [ref=e52]:
+            - generic [ref=e53]: "#"
+            - generic [ref=e54]: Player
+            - generic [ref=e55]: Wins
+            - generic [ref=e56]: Games
+            - generic [ref=e57]: Pts
+          - generic [ref=e58]:
+            - generic [ref=e59]: 🥇
+            - generic "gukenz" [ref=e60]
+            - generic [ref=e61]: "2"
+            - generic [ref=e62]: "2"
+            - generic [ref=e63]: "35"

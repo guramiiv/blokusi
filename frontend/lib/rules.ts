@@ -60,6 +60,37 @@ export function placementCells(
   return orientation.map(([dx, dy]) => [x + dx, y + dy]);
 }
 
+/** Empty cells where a new piece of this color could have a cell:
+ *  the starting corner on the first move, otherwise cells diagonally
+ *  adjacent to the color's existing pieces (mirrors the server). */
+export function candidateAnchors(
+  board: (Color | null)[][],
+  color: Color,
+  isFirstMove: boolean,
+  startCorner: [number, number]
+): [number, number][] {
+  if (isFirstMove) {
+    const [cx, cy] = startCorner;
+    return board[cy][cx] === null ? [[cx, cy]] : [];
+  }
+  const anchors: [number, number][] = [];
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      if (board[y][x] !== null) continue;
+      const nearOwn = [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dy]) => {
+        const nx = x + dx, ny = y + dy;
+        return (
+          nx >= 0 && nx < BOARD_SIZE &&
+          ny >= 0 && ny < BOARD_SIZE &&
+          board[ny][nx] === color
+        );
+      });
+      if (nearOwn) anchors.push([x, y]);
+    }
+  }
+  return anchors;
+}
+
 export function isLegalPlacement(
   board: (Color | null)[][],
   color: Color,

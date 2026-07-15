@@ -1,0 +1,50 @@
+- generic [active] [ref=f3e1]:
+  - alert [ref=f3e10]
+  - generic [ref=f3e64]:
+    - generic [ref=f3e66]:
+      - heading "drag_tester's game" [level=1] [ref=f3e67]
+      - generic [ref=f3e68]:
+        - button "📖" [ref=f3e69] [cursor=pointer]
+        - button "← Lobby" [ref=f3e70] [cursor=pointer]
+    - generic [ref=f3e71]:
+      - strong [ref=f3e72]: Your turn (Blue).
+      - text: Drag or nudge the piece into position, rotate it, then tap ✓.
+    - generic [ref=f3e475]:
+      - generic [ref=f3e476]:
+        - generic "drag_tester" [ref=f3e477] [cursor=pointer]:
+          - generic [ref=f3e479]: drag_tester (you)
+          - generic [ref=f3e480]: 21 left
+        - generic "🤖 Yellow" [ref=f3e481] [cursor=pointer]: 21 left
+        - generic "🤖 Red" [ref=f3e485] [cursor=pointer]: 21 left
+        - generic "🤖 Green" [ref=f3e489] [cursor=pointer]: 21 left
+      - generic [ref=f3e493]:
+        - heading "Your pieces" [level=2] [ref=f3e494]
+        - generic [ref=f3e495]:
+          - generic "I1" [ref=f3e496] [cursor=pointer]
+          - generic "I2" [ref=f3e499] [cursor=pointer]
+          - generic "I3" [ref=f3e503] [cursor=pointer]
+          - generic "V3" [ref=f3e508] [cursor=pointer]
+          - generic "I4" [ref=f3e514] [cursor=pointer]
+          - generic "O4" [ref=f3e520] [cursor=pointer]
+          - generic "T4" [ref=f3e526] [cursor=pointer]
+          - generic "L4" [ref=f3e534] [cursor=pointer]
+          - generic "S4" [ref=f3e542] [cursor=pointer]
+          - generic "F" [ref=f3e550] [cursor=pointer]
+          - generic "I5" [ref=f3e561] [cursor=pointer]
+          - generic "L5" [ref=f3e568] [cursor=pointer]
+          - generic "N" [ref=f3e578] [cursor=pointer]
+          - generic "P" [ref=f3e588] [cursor=pointer]
+          - generic "T5" [ref=f3e596] [cursor=pointer]
+          - generic "U" [ref=f3e607] [cursor=pointer]
+          - generic "V5" [ref=f3e615] [cursor=pointer]
+          - generic "W" [ref=f3e626] [cursor=pointer]
+          - generic "X" [ref=f3e637] [cursor=pointer]
+          - generic "Y" [ref=f3e648] [cursor=pointer]
+          - generic "Z5" [ref=f3e658] [cursor=pointer]
+        - paragraph [ref=f3e669]: R rotate · F flip · arrows nudge · Enter place · Esc cancel
+    - generic [ref=f3e670]:
+      - button "Rotate left" [ref=f3e671] [cursor=pointer]
+      - button "Rotate right (R)" [ref=f3e675] [cursor=pointer]
+      - button "Flip (F)" [ref=f3e679] [cursor=pointer]
+      - button "Cancel (Esc)" [ref=f3e683] [cursor=pointer]
+      - button "Place" [disabled] [ref=f3e687]
