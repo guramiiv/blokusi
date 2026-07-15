@@ -684,7 +684,9 @@ export default function GamePage() {
               const key = `${x},${y}`;
               const previewState = preview?.get(key);
               const corner = !cell && cornerOwner.get(key);
-              const isPending = !cell && pendingCells?.has(key);
+              // Painted even over occupied cells so the staged piece never
+              // hides behind placed pieces (e.g. right after a rotation).
+              const isPending = pendingCells?.has(key);
               // My placed pieces are tappable (open the piece picker):
               // pulse them gently while I'm choosing what to play.
               const clickHint =
@@ -797,15 +799,23 @@ export default function GamePage() {
 
       {hasBottomBar && !showActionBar && (
         <div className="add-piece-bar">
-          <button
-            className="primary"
-            disabled={!isMyTurn}
-            onClick={() =>
-              setPicker([Math.floor(BOARD_SIZE / 2), Math.floor(BOARD_SIZE / 2)])
-            }
-          >
-            ➕ Add piece
-          </button>
+          {isMyTurn ? (
+            <button
+              className="primary"
+              onClick={() =>
+                setPicker([Math.floor(BOARD_SIZE / 2), Math.floor(BOARD_SIZE / 2)])
+              }
+            >
+              ➕ Add piece
+            </button>
+          ) : (
+            <button
+              className="danger"
+              onClick={() => me && setViewPlayer(me.color)}
+            >
+              👀 See pieces
+            </button>
+          )}
         </div>
       )}
 

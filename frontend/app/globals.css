@@ -66,6 +66,18 @@ button.primary {
   font-weight: 600;
 }
 
+button.danger {
+  background: var(--c-red);
+  border-color: var(--c-red);
+  color: #fff;
+  font-weight: 600;
+}
+
+button.danger:hover:not(:disabled) {
+  border-color: var(--c-red);
+  filter: brightness(1.1);
+}
+
 input {
   font: inherit;
   background: var(--panel-2);
