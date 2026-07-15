@@ -19,6 +19,7 @@ import {
   orientationAfter,
   placementCells,
 } from "@/lib/rules";
+import RulesModal from "@/components/RulesModal";
 
 const COLOR_LABEL: Record<Color, string> = {
   blue: "Blue",
@@ -63,6 +64,7 @@ export default function GamePage() {
   // piece picker; the chosen piece is staged corner-adjacent to it.
   // The mobile "Add piece" button opens it targeting the board center.
   const [picker, setPicker] = useState<[number, number] | null>(null);
+  const [showRules, setShowRules] = useState(false);
   // Briefly blink the freshly staged piece so it is easy to spot.
   const [flashPending, setFlashPending] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,7 +219,8 @@ export default function GamePage() {
       if (e.key === "r" || e.key === "R") rotate("cw");
       if (e.key === "f" || e.key === "F") rotate("flip");
       if (e.key === "Escape") {
-        if (picker) setPicker(null);
+        if (showRules) setShowRules(false);
+        else if (picker) setPicker(null);
         else if (viewPlayer) setViewPlayer(null);
         else cancelPending();
       }
@@ -232,7 +235,7 @@ export default function GamePage() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rotate, cancelPending, confirmPending, nudge, viewPlayer, picker]);
+  }, [rotate, cancelPending, confirmPending, nudge, viewPlayer, picker, showRules]);
 
   // --- shared drag geometry ---------------------------------------------------
 
@@ -607,11 +610,16 @@ export default function GamePage() {
     <div className={`container game-container ${hasBottomBar ? "has-bar" : ""}`}>
       <div className="topbar">
         <h1>{game.name}</h1>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {!connected && <span className="error-text">reconnecting…</span>}
+          <button onClick={() => setShowRules(true)} title="თამაშის წესები">
+            📖
+          </button>
           <button onClick={() => router.push("/")}>← Lobby</button>
         </div>
       </div>
+
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
 
       {game.status === "waiting" && (
         <div className="banner" style={{ marginBottom: 16 }}>
@@ -633,7 +641,7 @@ export default function GamePage() {
                 ? "Drag or nudge the piece into position, rotate it, then tap ✓."
                 : selected
                   ? "Tap or drag onto the board to position the piece."
-                  : "Pick a piece from your tray."}
+                  : "Pick a piece from your tray, or tap one of your glowing pieces on the board."}
             </>
           ) : (
             <>
@@ -677,6 +685,15 @@ export default function GamePage() {
               const previewState = preview?.get(key);
               const corner = !cell && cornerOwner.get(key);
               const isPending = !cell && pendingCells?.has(key);
+              // My placed pieces are tappable (open the piece picker):
+              // pulse them gently while I'm choosing what to play.
+              const clickHint =
+                !!cell &&
+                !!me &&
+                cell === me.color &&
+                isMyTurn &&
+                !selected &&
+                game.status === "active";
               return (
                 <div
                   key={key}
@@ -684,6 +701,7 @@ export default function GamePage() {
                     "cell",
                     cell ?? "",
                     corner ? `corner-${corner}` : "",
+                    clickHint ? "hint" : "",
                     previewState === true ? "preview-ok" : "",
                     previewState === false ? "preview-bad" : "",
                     isPending

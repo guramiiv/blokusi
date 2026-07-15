@@ -422,6 +422,22 @@ input:focus {
   background: rgba(239, 68, 68, 0.6);
 }
 
+/* my placed pieces are tappable while choosing a move — pulse softly */
+@keyframes cell-hint {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.45);
+  }
+}
+
+.cell.hint {
+  cursor: pointer;
+  animation: cell-hint 2.2s ease-in-out infinite;
+}
+
 /* staged (pending) piece: solid color, outlined white = legal, red = not */
 .cell.pending {
   cursor: grab;
